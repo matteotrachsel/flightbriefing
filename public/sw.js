@@ -37,10 +37,23 @@ workbox.core.clientsClaim();
 /* Caching routes                                                             */
 /* -------------------------------------------------------------------------- */
 
-// App shell: navigations + static assets.
+// Page navigations (HTML): NetworkFirst so online users always get the latest
+// UI, with a fast timeout that falls back to the cached shell when offline.
+workbox.routing.registerRoute(
+  ({ request }) => request.mode === "navigate",
+  new workbox.strategies.NetworkFirst({
+    cacheName: SHELL_CACHE,
+    networkTimeoutSeconds: 4,
+    plugins: [
+      new workbox.cacheableResponse.CacheableResponsePlugin({ statuses: [0, 200] }),
+    ],
+  })
+);
+
+// Hashed static assets (JS/CSS/workers) are immutable per build → cache-first
+// via StaleWhileRevalidate is safe and fast.
 workbox.routing.registerRoute(
   ({ request }) =>
-    request.mode === "navigate" ||
     request.destination === "script" ||
     request.destination === "style" ||
     request.destination === "worker",
