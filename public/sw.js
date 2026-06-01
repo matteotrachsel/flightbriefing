@@ -47,9 +47,11 @@ workbox.routing.registerRoute(
   new workbox.strategies.StaleWhileRevalidate({ cacheName: SHELL_CACHE })
 );
 
-// OSM raster tiles.
+// Raster basemap tiles (CARTO dark + OSM fallback).
 workbox.routing.registerRoute(
-  ({ url }) => /tile\.openstreetmap\.org/.test(url.hostname),
+  ({ url }) =>
+    /basemaps\.cartocdn\.com/.test(url.hostname) ||
+    /tile\.openstreetmap\.org/.test(url.hostname),
   new workbox.strategies.CacheFirst({
     cacheName: TILE_CACHE,
     plugins: [

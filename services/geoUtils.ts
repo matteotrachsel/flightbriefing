@@ -212,10 +212,10 @@ export function tilesForCorridor(
   return tiles;
 }
 
-/** Build an OSM tile URL for a given tile coordinate. */
+/** Build a basemap tile URL for a given tile coordinate (dark CARTO basemap). */
 export function tileUrl(
   { z, x, y }: TileCoord,
-  template = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+  template = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 ): string {
   return template
     .replace("{z}", String(z))

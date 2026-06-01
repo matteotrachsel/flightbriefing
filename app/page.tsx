@@ -7,9 +7,14 @@ import type { Briefing } from "../types/briefing";
 import RiskAssessmentCard from "../components/RiskAssessmentCard";
 import { persistBriefing, registerServiceWorker } from "../lib/idb";
 
-// Leaflet must be client-only (no SSR). The map component is a small wrapper
-// around react-leaflet that renders briefing.route.corridor + waypoints.
-const RouteMap = dynamic(() => import("../components/RouteMap"), { ssr: false });
+const RouteMap = dynamic(() => import("../components/RouteMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="panel bezel grid h-[460px] place-items-center text-ink-faint">
+      <span className="font-display text-xs tracking-[0.2em]">LOADING CHART…</span>
+    </div>
+  ),
+});
 
 const DEFAULT_FORM = {
   route: "LFSB LFGA LSGG",
@@ -31,15 +36,25 @@ export default function HomePage() {
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [online, setOnline] = useState(true);
 
   useEffect(() => {
     registerServiceWorker().catch(() => undefined);
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
   }, []);
 
-  const update = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-    setForm((f) => ({ ...f, [k]: v }));
-  };
+  const update =
+    (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+      setForm((f) => ({ ...f, [k]: v }));
+    };
 
   async function generate() {
     setLoading(true);
@@ -73,7 +88,6 @@ export default function HomePage() {
       }
       const data: Briefing = await res.json();
       setBriefing(data);
-      // Persist for offline cockpit viewing + warm the tile cache.
       persistBriefing(data).catch(() => undefined);
     } catch (e) {
       setError((e as Error).message);
@@ -83,105 +97,190 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-4 sm:p-6">
-      <h1 className="text-xl font-bold text-slate-800">Pre-Flight Briefing</h1>
-      <p className="mb-4 text-sm text-slate-500">
-        Route, weather, airspace and automated FRAT risk — offline-ready.
-      </p>
+    <main className="relayer mx-auto max-w-6xl px-4 pb-16 pt-6 sm:px-6">
+      {/* ── EFB title bar ───────────────────────────────────────────── */}
+      <header className="panel bezel mb-5 flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-3">
+          <Wings />
+          <div>
+            <h1 className="font-display text-lg font-bold tracking-[0.18em] text-ink sm:text-xl">
+              PRE<span className="text-cyan">FLIGHT</span>
+            </h1>
+            <p className="font-display text-[0.56rem] tracking-[0.34em] text-ink-faint">
+              METEO · AIRSPACE · FRAT
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`led ${online ? "led-go" : "led-caution"} ${online ? "" : "pulse"}`} />
+          <span className="font-display text-[0.6rem] tracking-[0.2em] text-ink-dim">
+            {online ? "ONLINE" : "OFFLINE · CACHED"}
+          </span>
+        </div>
+      </header>
 
-      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-3">
-        <label className="col-span-3 text-sm">
-          Route (ICAO codes)
-          <input
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
-            value={form.route}
-            onChange={update("route")}
-          />
-        </label>
-        <NumField label="Altitude (ft)" value={form.altitudeFt} onChange={update("altitudeFt")} />
-        <NumField label="Corridor (NM)" value={form.bufferNm} onChange={update("bufferNm")} />
-        <TextField label="Aircraft model" value={form.aircraftModel} onChange={update("aircraftModel")} />
-        <NumField label="Crosswind limit (kt)" value={form.crosswindLimitKt} onChange={update("crosswindLimitKt")} />
-        <NumField label="Fuel reserve (min)" value={form.fuelReserveMinutes} onChange={update("fuelReserveMinutes")} />
-        <NumField label="Total hours" value={form.totalHours} onChange={update("totalHours")} />
-        <NumField label="Hours on type" value={form.hoursOnType} onChange={update("hoursOnType")} />
-        <NumField label="Hours last 90d" value={form.hoursLast90Days} onChange={update("hoursLast90Days")} />
-        <NumField label="Sleep (1-5)" value={form.sleepQuality} onChange={update("sleepQuality")} />
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.instrumentRated} onChange={update("instrumentRated")} />
-          Instrument rated
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.ifrCapable} onChange={update("ifrCapable")} />
-          Aircraft IFR-capable
-        </label>
+      {/* ── Flight plan input ──────────────────────────────────────── */}
+      <section className="panel bezel mb-6">
+        <div className="panel-head">
+          <span>Flight Plan</span>
+          <span className="tag">PAVE INPUTS</span>
+        </div>
 
-        <div className="col-span-3">
-          <button
-            onClick={generate}
-            disabled={loading}
-            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-          >
-            {loading ? "Generating…" : "Generate briefing"}
-          </button>
+        <div className="space-y-5 p-4 sm:p-6">
+          {/* Route block */}
+          <Block label="Route">
+            <Field className="sm:col-span-2" label="ICAO sequence">
+              <input
+                className="field-input tracking-[0.3em]"
+                value={form.route}
+                onChange={update("route")}
+                placeholder="LFSB LFGA LSGG"
+                spellCheck={false}
+              />
+            </Field>
+            <Num label="Altitude · ft" value={form.altitudeFt} onChange={update("altitudeFt")} />
+            <Num label="Corridor · NM" value={form.bufferNm} onChange={update("bufferNm")} />
+          </Block>
+
+          {/* Aircraft block */}
+          <Block label="Aircraft">
+            <Field label="Model">
+              <input className="field-input" value={form.aircraftModel} onChange={update("aircraftModel")} spellCheck={false} />
+            </Field>
+            <Num label="Crosswind lim · kt" value={form.crosswindLimitKt} onChange={update("crosswindLimitKt")} />
+            <Num label="Fuel reserve · min" value={form.fuelReserveMinutes} onChange={update("fuelReserveMinutes")} />
+            <Toggle label="IFR capable" checked={form.ifrCapable} onChange={update("ifrCapable")} />
+          </Block>
+
+          {/* Pilot block */}
+          <Block label="Pilot">
+            <Num label="Total hrs" value={form.totalHours} onChange={update("totalHours")} />
+            <Num label="Hrs on type" value={form.hoursOnType} onChange={update("hoursOnType")} />
+            <Num label="Hrs / 90d" value={form.hoursLast90Days} onChange={update("hoursLast90Days")} />
+            <Num label="Sleep 1–5" value={form.sleepQuality} onChange={update("sleepQuality")} />
+            <Toggle label="Instrument rated" checked={form.instrumentRated} onChange={update("instrumentRated")} />
+          </Block>
+
+          <div className="flex flex-col items-stretch gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="font-mono text-[0.72rem] text-ink-faint">
+              Live data: aviationweather.gov · OpenAIP · NOTAM
+            </p>
+            <button onClick={generate} disabled={loading} className="btn-fly px-7 py-2.5 text-sm">
+              {loading ? "ACQUIRING…" : "GENERATE BRIEFING"}
+            </button>
+          </div>
         </div>
       </section>
 
       {error && (
-        <p className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </p>
+        <div role="alert"
+             className="mb-6 flex items-center gap-2 rounded-xl border border-warn/50 px-4 py-3 font-mono text-sm text-warn"
+             style={{ background: "rgba(255,77,87,0.07)" }}>
+          <span className="led led-warn pulse" /> {error}
+        </div>
       )}
 
       {briefing && (
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <RiskAssessmentCard risk={briefing.risk} aircraftModel={briefing.aircraft.model} />
-          <RouteMap briefing={briefing} />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <RiskAssessmentCard
+            risk={briefing.risk}
+            aircraftModel={briefing.aircraft.model}
+            className="rise"
+          />
+          <div className="rise space-y-6" style={{ animationDelay: "120ms" }}>
+            <RouteMap briefing={briefing} />
+            <WxStrip briefing={briefing} />
+          </div>
         </div>
       )}
     </main>
   );
 }
 
-function NumField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number | string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
+/* ── Layout helpers ──────────────────────────────────────────────── */
+
+function Block({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="text-sm">
-      {label}
-      <input
-        type="number"
-        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
-        value={value}
-        onChange={onChange}
-      />
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="h-px flex-none" />
+        <span className="font-display text-[0.62rem] tracking-[0.28em] text-cyan">{label.toUpperCase()}</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="field-label">{label}</span>
+      <div className="mt-1">{children}</div>
     </label>
   );
 }
 
-function TextField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
+function Num({ label, value, onChange }: { label: string; value: number | string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   return (
-    <label className="text-sm">
-      {label}
-      <input
-        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5"
-        value={value}
-        onChange={onChange}
-      />
+    <Field label={label}>
+      <input type="number" className="field-input" value={value} onChange={onChange} />
+    </Field>
+  );
+}
+
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+  return (
+    <label className="flex cursor-pointer select-none flex-col justify-end gap-1">
+      <span className="field-label">{label}</span>
+      <div className="flex items-center gap-2 rounded-lg border border-line bg-black/30 px-2.5 py-2">
+        <input type="checkbox" className="peer sr-only" checked={checked} onChange={onChange} />
+        <span className={`led ${checked ? "led-go" : ""}`}
+              style={checked ? undefined : { background: "var(--ink-faint)", boxShadow: "none", color: "var(--ink-faint)" }} />
+        <span className={`font-mono text-xs ${checked ? "text-go" : "text-ink-faint"}`}>
+          {checked ? "YES" : "NO"}
+        </span>
+      </div>
     </label>
+  );
+}
+
+/* Compact METAR strip under the map. */
+function WxStrip({ briefing }: { briefing: Briefing }) {
+  const rules: Record<string, string> = {
+    VFR: "var(--go)", MVFR: "var(--caution)", IFR: "var(--warn)", LIFR: "var(--warn)",
+  };
+  const metars = briefing.meteo.metars;
+  return (
+    <section className="panel bezel">
+      <div className="panel-head"><span>Surface Weather</span><span className="tag">METAR</span></div>
+      {metars.length === 0 ? (
+        <p className="px-4 py-5 font-mono text-sm text-ink-faint">No METAR returned for these stations.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {metars.map((m) => (
+            <li key={m.icao} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="led" style={{ background: rules[m.flightRule], color: rules[m.flightRule] }} />
+              <span className="font-display text-sm tracking-[0.1em] text-ink">{m.icao}</span>
+              <span className="readout text-xs" style={{ color: rules[m.flightRule] }}>{m.flightRule}</span>
+              <span className="readout ml-auto text-xs text-ink-dim">
+                {m.wind.directionDeg ?? "VRB"}° / {m.wind.speedKt}
+                {m.wind.gustKt ? `G${m.wind.gustKt}` : ""}kt
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Wings() {
+  return (
+    <svg width="34" height="34" viewBox="0 0 48 48" fill="none" aria-hidden>
+      <circle cx="24" cy="24" r="22" stroke="var(--cyan)" strokeWidth="1.5" opacity="0.5" />
+      <path d="M24 6 L24 42 M6 24 L42 24" stroke="var(--line-strong)" strokeWidth="1" />
+      <path d="M24 12 L31 30 L24 26 L17 30 Z" fill="var(--cyan)" style={{ filter: "drop-shadow(0 0 5px var(--cyan))" }} />
+    </svg>
   );
 }
